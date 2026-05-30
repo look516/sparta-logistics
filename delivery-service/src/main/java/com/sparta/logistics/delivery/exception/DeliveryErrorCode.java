@@ -12,7 +12,7 @@ public enum DeliveryErrorCode implements ErrorCode {
     DELIVERY_CONFLICT(HttpStatus.CONFLICT, "DELIVERY_409", "다른 요청에 의해 배송 데이터가 변경되었습니다. 다시 시도해 주세요."),
 
     DELIVERY_NOT_FOUND(HttpStatus.NOT_FOUND, "DELIVERY_404", "배송 정보를 찾을 수 없습니다."),
-    DELIVERY_ALREADY_DELETED(HttpStatus.BAD_REQUEST, "DELIVERY_001", "이미 삭제된 배송입니다."),
+    DELIVERY_ALREADY_DELETED(HttpStatus.NOT_FOUND, "DELIVERY_404_001", "이미 삭제된 배송입니다."),
     INVALID_STATUS_TRANSITION(HttpStatus.BAD_REQUEST, "DELIVERY_002", "허용되지 않는 배송 상태 전이입니다."),
 
     MANAGER_NOT_FOUND(HttpStatus.NOT_FOUND, "DELIVERY_MGR_404", "배송담당자를 찾을 수 없습니다."),

@@ -104,16 +104,15 @@ class DeliveryControllerE2ETest {
     }
 
     @Test
-    void MASTER_삭제_후_단건조회_400() throws Exception {
+    void MASTER_삭제_후_단건조회_404() throws Exception {
         mockMvc.perform(delete("/api/v1/deliveries/{id}", deliveryId)
                         .header("X-User-Id", UUID.randomUUID())
                         .header("X-User-Role", Role.MASTER))
                 .andExpect(status().isNoContent());
 
-        // DELIVERY_ALREADY_DELETED → 400 BAD_REQUEST
         mockMvc.perform(get("/api/v1/deliveries/{id}", deliveryId)
                         .header("X-User-Id", UUID.randomUUID())
                         .header("X-User-Role", Role.MASTER))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isNotFound());
     }
 }
