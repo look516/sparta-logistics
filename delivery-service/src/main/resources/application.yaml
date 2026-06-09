@@ -65,3 +65,7 @@ resilience4j:
 eureka:
   instance:
     instance-id: ${spring.application.name}:${server.port}
+
+outbox:
+  relay:
+    fixed-delay-ms: 1000  # Outbox PENDING 이벤트 Kafka 발행 주기 (ms)

@@ -1,7 +1,5 @@
 package com.sparta.logistics.delivery.kafka.producer;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sparta.logistics.common.kafka.KafkaTopics;
 import com.sparta.logistics.common.kafka.event.DeliveryCancellationFailedEvent;
 import com.sparta.logistics.common.kafka.event.DeliveryCancelledAckEvent;
@@ -10,23 +8,26 @@ import com.sparta.logistics.common.kafka.event.DeliveryCreationFailedEvent;
 import com.sparta.logistics.common.kafka.event.DeliveryOrderItemPayload;
 import com.sparta.logistics.common.kafka.event.DeliveryStartedEvent;
 import com.sparta.logistics.common.kafka.event.RestoreStockItemPayload;
+import com.sparta.logistics.common.outbox.OutboxEventPublisher;
 import com.sparta.logistics.delivery.entity.DeliveryOrderItemEntity;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * Delivery 도메인 이벤트를 Outbox 테이블에 저장함
+ * 실제 Kafka 발행은 OutboxEventRelay가 담당함 (at-least-once 보장)
+ **/
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class DeliveryEventPublisher {
 
-    private final KafkaTemplate<String, String> kafkaTemplate;
-    private final ObjectMapper objectMapper;
+    private final OutboxEventPublisher outboxEventPublisher;
 
     public void publishCreated(UUID deliveryId, UUID orderId,
                                UUID sourceHubId, UUID destinationHubId,
@@ -34,55 +35,38 @@ public class DeliveryEventPublisher {
                                String deliveryAddress, int totalEstimatedDuration,
                                String receiverSlackId, String sourceHubName, String destinationHubName,
                                LocalDateTime createdAt) {
-        try {
-            String message = objectMapper.writeValueAsString(
-                    DeliveryCreatedEvent.builder()
-                            .eventId(UUID.randomUUID())
-                            .deliveryId(deliveryId)
-                            .orderId(orderId)
-                            .sourceHubId(sourceHubId)
-                            .destinationHubId(destinationHubId)
-                            .companyDeliveryManagerId(companyDeliveryManagerId)
-                            .totalDeliveryCount(totalDeliveryCount)
-                            .deliveryAddress(deliveryAddress)
-                            .totalEstimatedDuration(totalEstimatedDuration)
-                            .receiverSlackId(receiverSlackId)
-                            .sourceHubName(sourceHubName)
-                            .destinationHubName(destinationHubName)
-                            .createdAt(createdAt)
-                            .build()
-            );
-            kafkaTemplate.send(KafkaTopics.DELIVERY_CREATED, deliveryId.toString(), message);
-            log.info("[Kafka] delivery.created 발행 — deliveryId={}, orderId={}", deliveryId, orderId);
-        } catch (JsonProcessingException e) {
-            log.error("[Kafka][수동처리 필요] delivery.created 발행 실패(afterCommit) — deliveryId={}", deliveryId, e);
-            throw new RuntimeException(e);
-        }
+        DeliveryCreatedEvent event = DeliveryCreatedEvent.builder()
+                .eventId(UUID.randomUUID())
+                .deliveryId(deliveryId)
+                .orderId(orderId)
+                .sourceHubId(sourceHubId)
+                .destinationHubId(destinationHubId)
+                .companyDeliveryManagerId(companyDeliveryManagerId)
+                .totalDeliveryCount(totalDeliveryCount)
+                .deliveryAddress(deliveryAddress)
+                .totalEstimatedDuration(totalEstimatedDuration)
+                .receiverSlackId(receiverSlackId)
+                .sourceHubName(sourceHubName)
+                .destinationHubName(destinationHubName)
+                .createdAt(createdAt)
+                .build();
+
+        outboxEventPublisher.publish(KafkaTopics.DELIVERY_CREATED, deliveryId.toString(), "DELIVERY", event);
+        log.info("[Outbox] delivery.created 저장 deliveryId={} orderId={}", deliveryId, orderId);
     }
 
     public void publishCreationFailed(UUID orderId, UUID deliveryId,
                                       String reason, List<RestoreStockItemPayload> itemsToRestore) {
-        try {
-            String message = objectMapper.writeValueAsString(
-                    DeliveryCreationFailedEvent.builder()
-                            .eventId(UUID.randomUUID())
-                            .orderId(orderId)
-                            .deliveryId(deliveryId)
-                            .reason(reason)
-                            .itemsToRestore(itemsToRestore)
-                            .build()
-            );
-            kafkaTemplate.send(KafkaTopics.DELIVERY_CREATION_FAILED, orderId.toString(), message)
-                    .whenComplete((result, ex) -> {
-                        if (ex != null) {
-                            log.error("[Kafka][수동처리 필요] delivery.creation.failed 전송 실패 — orderId={}", orderId, ex);
-                        } else {
-                            log.info("[Kafka] delivery.creation.failed 발행 — orderId={}, reason={}", orderId, reason);
-                        }
-                    });
-        } catch (JsonProcessingException e) {
-            log.error("[Kafka][수동처리 필요] delivery.creation.failed 직렬화 실패 — orderId={}", orderId, e);
-        }
+        DeliveryCreationFailedEvent event = DeliveryCreationFailedEvent.builder()
+                .eventId(UUID.randomUUID())
+                .orderId(orderId)
+                .deliveryId(deliveryId)
+                .reason(reason)
+                .itemsToRestore(itemsToRestore)
+                .build();
+
+        outboxEventPublisher.publish(KafkaTopics.DELIVERY_CREATION_FAILED, orderId.toString(), "DELIVERY", event);
+        log.info("[Outbox] delivery.creation.failed 저장 orderId={} reason={}", orderId, reason);
     }
 
     public void publishStarted(UUID deliveryId, UUID orderId, List<DeliveryOrderItemEntity> items) {
@@ -94,53 +78,38 @@ public class DeliveryEventPublisher {
                         .quantity(i.getQuantity())
                         .build())
                 .toList();
-        try {
-            String message = objectMapper.writeValueAsString(
-                    DeliveryStartedEvent.builder()
-                            .eventId(UUID.randomUUID())
-                            .deliveryId(deliveryId)
-                            .orderId(orderId)
-                            .orderItems(payloads)
-                            .build()
-            );
-            kafkaTemplate.send(KafkaTopics.DELIVERY_STARTED, deliveryId.toString(), message);
-            log.info("[Kafka] delivery.started 발행 — deliveryId={}", deliveryId);
-        } catch (JsonProcessingException e) {
-            log.error("[Kafka] delivery.started 직렬화 실패 — deliveryId={}", deliveryId, e);
-            throw new RuntimeException(e);
-        }
+
+        DeliveryStartedEvent event = DeliveryStartedEvent.builder()
+                .eventId(UUID.randomUUID())
+                .deliveryId(deliveryId)
+                .orderId(orderId)
+                .orderItems(payloads)
+                .build();
+
+        outboxEventPublisher.publish(KafkaTopics.DELIVERY_STARTED, deliveryId.toString(), "DELIVERY", event);
+        log.info("[Outbox] delivery.started 저장 deliveryId={}", deliveryId);
     }
 
     public void publishCancelledAck(UUID deliveryId, UUID orderId) {
-        try {
-            String message = objectMapper.writeValueAsString(
-                    DeliveryCancelledAckEvent.builder()
-                            .eventId(UUID.randomUUID())
-                            .deliveryId(deliveryId)
-                            .orderId(orderId)
-                            .build()
-            );
-            kafkaTemplate.send(KafkaTopics.DELIVERY_CANCELLED_ACK, orderId.toString(), message);
-            log.info("[Kafka] delivery.cancelled.ack 발행 — orderId={}", orderId);
-        } catch (JsonProcessingException e) {
-            log.error("[Kafka][수동처리 필요] delivery.cancelled.ack 직렬화 실패 — deliveryId={}", deliveryId, e);
-        }
+        DeliveryCancelledAckEvent event = DeliveryCancelledAckEvent.builder()
+                .eventId(UUID.randomUUID())
+                .deliveryId(deliveryId)
+                .orderId(orderId)
+                .build();
+
+        outboxEventPublisher.publish(KafkaTopics.DELIVERY_CANCELLED_ACK, orderId.toString(), "DELIVERY", event);
+        log.info("[Outbox] delivery.cancelled.ack 저장 orderId={}", orderId);
     }
 
     public void publishCancellationFailed(UUID orderId, UUID deliveryId, String reason) {
-        try {
-            String message = objectMapper.writeValueAsString(
-                    DeliveryCancellationFailedEvent.builder()
-                            .eventId(UUID.randomUUID())
-                            .orderId(orderId)
-                            .deliveryId(deliveryId)
-                            .reason(reason)
-                            .build()
-            );
-            kafkaTemplate.send(KafkaTopics.DELIVERY_CANCELLATION_FAILED, orderId.toString(), message);
-            log.info("[Kafka] delivery.cancellation.failed 발행 — orderId={}, reason={}", orderId, reason);
-        } catch (JsonProcessingException e) {
-            log.error("[Kafka][수동처리 필요] delivery.cancellation.failed 직렬화 실패 — orderId={}", orderId, e);
-        }
+        DeliveryCancellationFailedEvent event = DeliveryCancellationFailedEvent.builder()
+                .eventId(UUID.randomUUID())
+                .orderId(orderId)
+                .deliveryId(deliveryId)
+                .reason(reason)
+                .build();
+
+        outboxEventPublisher.publish(KafkaTopics.DELIVERY_CANCELLATION_FAILED, orderId.toString(), "DELIVERY", event);
+        log.info("[Outbox] delivery.cancellation.failed 저장 orderId={} reason={}", orderId, reason);
     }
 }
