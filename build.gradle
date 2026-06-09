@@ -72,10 +72,11 @@ configure(subprojects.findAll{!excludedModules.contains(it.name)}) {
         implementation 'org.springframework.cloud:spring-cloud-starter-netflix-eureka-client'
         implementation 'org.springframework.cloud:spring-cloud-starter-config'
 
-        // 모니터링 (Actuator, Zipkin 분산 추적)
+        // 모니터링 (Actuator, Zipkin 분산 추적, Prometheus 메트릭)
         implementation 'org.springframework.boot:spring-boot-starter-actuator'
         implementation 'io.micrometer:micrometer-tracing-bridge-brave'
         implementation 'io.zipkin.reporter2:zipkin-reporter-brave'
+        implementation 'io.micrometer:micrometer-registry-prometheus'
 
         // Swagger (API 문서)
         implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.9'

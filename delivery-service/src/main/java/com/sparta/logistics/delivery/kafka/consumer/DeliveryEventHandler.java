@@ -18,9 +18,10 @@ import com.sparta.logistics.delivery.dto.event.StockReservedItemPayload;
 import com.sparta.logistics.delivery.kafka.producer.DeliveryEventPublisher;
 import com.sparta.logistics.delivery.repository.DeliveryRepository;
 import com.sparta.logistics.delivery.service.DeliveryService;
+import io.micrometer.core.instrument.Counter;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.KafkaHeaders;
@@ -32,7 +33,6 @@ import java.util.List;
 
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class DeliveryEventHandler {
 
     private final DeliveryService deliveryService;
@@ -41,6 +41,34 @@ public class DeliveryEventHandler {
     private final FeignCallService feignCallService;
     private final ObjectMapper objectMapper;
     private final DeliveryRepository deliveryRepository;
+    private final Counter deliveryCreationSuccessCounter;
+    private final Counter deliveryCreationFailureCounter;
+    private final Counter deliveryCancelSuccessCounter;
+    private final Counter deliveryCancelFailureCounter;
+
+    public DeliveryEventHandler(
+            DeliveryService deliveryService,
+            DeliveryManagerService deliveryManagerService,
+            DeliveryEventPublisher eventPublisher,
+            FeignCallService feignCallService,
+            ObjectMapper objectMapper,
+            DeliveryRepository deliveryRepository,
+            @Qualifier("deliveryCreationSuccessCounter") Counter deliveryCreationSuccessCounter,
+            @Qualifier("deliveryCreationFailureCounter") Counter deliveryCreationFailureCounter,
+            @Qualifier("deliveryCancelSuccessCounter") Counter deliveryCancelSuccessCounter,
+            @Qualifier("deliveryCancelFailureCounter") Counter deliveryCancelFailureCounter
+    ) {
+        this.deliveryService = deliveryService;
+        this.deliveryManagerService = deliveryManagerService;
+        this.eventPublisher = eventPublisher;
+        this.feignCallService = feignCallService;
+        this.objectMapper = objectMapper;
+        this.deliveryRepository = deliveryRepository;
+        this.deliveryCreationSuccessCounter = deliveryCreationSuccessCounter;
+        this.deliveryCreationFailureCounter = deliveryCreationFailureCounter;
+        this.deliveryCancelSuccessCounter = deliveryCancelSuccessCounter;
+        this.deliveryCancelFailureCounter = deliveryCancelFailureCounter;
+    }
 
     @KafkaListener(topics = KafkaTopics.STOCK_RESERVED, groupId = "delivery-service")
     public void handleStockReserved(
@@ -112,11 +140,13 @@ public class DeliveryEventHandler {
 
         try {
             deliveryService.createDelivery(event, slackId, routeSegments);
+            deliveryCreationSuccessCounter.increment();
             log.info("[Kafka] 배송 생성 완료 — orderId={}", event.orderId());
         } catch (DataIntegrityViolationException e) {
             // 동시 중복 저장 경쟁: 다른 스레드가 먼저 처리 완료 — 정상 상황, 사가 보상 불필요
             log.info("[Kafka] 중복 저장 경쟁 — 이미 처리됨 orderId={}", event.orderId());
         } catch (Exception e) {
+            deliveryCreationFailureCounter.increment();
             log.error("[Kafka] 배송 생성 실패 — orderId={}", event.orderId(), e);
             eventPublisher.publishCreationFailed(event.orderId(), null, "CREATE_FAILED",
                     toRestoreItems(event.orderItems()));
@@ -136,11 +166,14 @@ public class DeliveryEventHandler {
         try {
             boolean cancelled = deliveryService.cancelDeliveryByCommand(command.getDeliveryId());
             if (cancelled) {
+                deliveryCancelSuccessCounter.increment();
                 eventPublisher.publishCancelledAck(command.getDeliveryId(), command.getOrderId());
             } else {
+                deliveryCancelFailureCounter.increment();
                 eventPublisher.publishCancellationFailed(command.getOrderId(), command.getDeliveryId(), "DELIVERY_IN_TRANSIT");
             }
         } catch (Exception e) {
+            deliveryCancelFailureCounter.increment();
             log.error("[Kafka] 배송 취소 처리 실패 — orderId={}", command.getOrderId(), e);
             eventPublisher.publishCancellationFailed(command.getOrderId(), command.getDeliveryId(), "CANCEL_FAILED");
         }
