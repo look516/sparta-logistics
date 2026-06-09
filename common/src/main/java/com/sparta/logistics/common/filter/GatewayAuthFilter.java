@@ -1,7 +1,6 @@
 package com.sparta.logistics.common.filter;
 
 import com.sparta.logistics.common.constants.SystemConstants;
-import com.sparta.logistics.common.domain.Role;
 import com.sparta.logistics.common.feign.FeignClientInterceptor;
 import com.sparta.logistics.common.security.GatewayAuthEntryPoint;
 import jakarta.servlet.FilterChain;
@@ -61,21 +60,11 @@ public class GatewayAuthFilter extends OncePerRequestFilter {
 
         if (StringUtils.hasText(userId) && StringUtils.hasText(role)) {
 
-            // X-User-Id: UUID 형식 검증
             try {
                 UUID.fromString(userId.trim());
             } catch (IllegalArgumentException e) {
                 log.warn("GatewayAuthFilter: X-User-Id가 UUID 형식이 아님 - 위조된 헤더 가능성 있음");
                 gatewayAuthEntryPoint.commence(request, response, new BadCredentialsException("위조된 헤더"));
-                return;
-            }
-
-            // X-User-Role: Role enum 값 검증 (게이트웨이 우회 요청으로 임의 권한 주입 방지)
-            try {
-                Role.valueOf(role.trim());
-            } catch (IllegalArgumentException e) {
-                log.warn("GatewayAuthFilter: X-User-Role이 유효하지 않은 값 - role={}", role);
-                gatewayAuthEntryPoint.commence(request, response, new BadCredentialsException("유효하지 않은 Role"));
                 return;
             }
 
