@@ -178,9 +178,11 @@ public class DeliveryEventHandler {
         }
         try {
             deliveryManagerService.softDeleteManagersByHubId(event.getHubId(), event.getDeletedBy());
+            log.info("[Kafka] hub.deleted 처리 완료 — hubId={}", event.getHubId());
+        } catch (BusinessException e) {
+            log.warn("[Kafka][수동처리 필요] hub.deleted 처리 실패(비즈니스) — hubId={}, code={}", event.getHubId(), e.getErrorCode().getCode());
         } catch (Exception e) {
             log.error("[Kafka][수동처리 필요] hub.deleted 처리 실패 — hubId={}", event.getHubId(), e);
-            throw new RuntimeException(e);
         }
     }
 

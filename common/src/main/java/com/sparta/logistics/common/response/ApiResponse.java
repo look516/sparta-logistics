@@ -40,13 +40,13 @@ public record ApiResponse<T>(
         return new ApiResponse<>(true,200, "OK",null);
     }
 
-    // 400 Bad Request: 에러 발생 (기본 에러 메시지)
+    // 에러 발생 (ErrorCode 상태코드 반영)
     public static <T> ApiResponse<T> error(ErrorCode errorCode) {
-        return new ApiResponse<>(false, 400,errorCode.getMessage(),null);
+        return new ApiResponse<>(false, errorCode.getStatus().value(), errorCode.getMessage(), null);
     }
 
-    // 400 Bad Request: 에러 발생 (커스텀 에러 메시지)
+    // 에러 발생 (커스텀 메시지, ErrorCode 상태코드 반영)
     public static <T> ApiResponse<T> error(ErrorCode errorCode, String message) {
-        return new ApiResponse<>(false,  400, message, null);
+        return new ApiResponse<>(false, errorCode.getStatus().value(), message, null);
     }
 }
